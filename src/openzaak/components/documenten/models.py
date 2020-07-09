@@ -431,22 +431,22 @@ class EnkelvoudigInformatieObject(AuditTrailMixin, APIMixin, InformatieObject):
             cmis_storage = CMISDRCStorageBackend()
             model_data = model_to_dict(self)
             # If the document doesn't exist, create it, otherwise update it
-            try:
-                # sanity - check - assert the doc exists in CMIS backend
-                cmis_storage.get_document(uuid=self.uuid)
-                # update the instance state to the storage backend
-                EnkelvoudigInformatieObject.objects.filter(uuid=self.uuid).update(
-                    **model_data
-                )
-                # Needed or the current django object will contain the version number and the download url
-                # from before the update and this data is sent back in the response
-                modified_document = EnkelvoudigInformatieObject.objects.filter(
-                    uuid=self.uuid
-                ).first()
-                self.__dict__["versie"] = modified_document.versie
-                self.__dict__["inhoud"] = modified_document.inhoud
-            except exceptions.DocumentDoesNotExistError:
-                EnkelvoudigInformatieObject.objects.create(**model_data)
+            # try:
+            #     # sanity - check - assert the doc exists in CMIS backend
+            #     cmis_storage.get_document(uuid=self.uuid)
+            #     # update the instance state to the storage backend
+            #     EnkelvoudigInformatieObject.objects.filter(uuid=self.uuid).update(
+            #         **model_data
+            #     )
+            #     # Needed or the current django object will contain the version number and the download url
+            #     # from before the update and this data is sent back in the response
+            #     modified_document = EnkelvoudigInformatieObject.objects.filter(
+            #         uuid=self.uuid
+            #     ).first()
+            #     self.__dict__["versie"] = modified_document.versie
+            #     self.__dict__["inhoud"] = modified_document.inhoud
+            # except exceptions.DocumentDoesNotExistError:
+            #     EnkelvoudigInformatieObject.objects.create(**model_data)
 
     def delete(self, *args, **kwargs):
         if not settings.CMIS_ENABLED:

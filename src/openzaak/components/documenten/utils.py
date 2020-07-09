@@ -1,11 +1,13 @@
 import io
+from decimal import Decimal
+from io import BytesIO
 
 from django.conf import settings
 from django.core.files.base import File
 from django.core.files.storage import Storage
 from django.utils.functional import LazyObject
 
-from drc_cmis.client import CMISDRCClient
+from client.soap_client import SOAPCMISClient
 from drc_cmis.cmis.drc_document import Document
 from privates.storages import PrivateMediaFileSystemStorage
 
@@ -51,12 +53,12 @@ class CMISStorageFile(File):
 
 class CMISStorage(Storage):
     def __init__(self, location=None, base_url=None, encoding=None):
-        self._client = CMISDRCClient()
+        self._client = SOAPCMISClient()
 
     def _open(self, uuid_version, mode="rb") -> CMISStorageFile:
         return CMISStorageFile(uuid_version)
 
-    def _read(self, uuid_version: str) -> bytes:
+    def _read(self, uuid_version: str) -> BytesIO:
         cmis_doc = self._get_cmis_doc(uuid_version)
         content_bytes = cmis_doc.get_content_stream()
         return content_bytes
@@ -88,8 +90,8 @@ class CMISStorage(Storage):
 
     def _get_cmis_doc(self, uuid_version: str) -> Document:
         uuid, wanted_version = uuid_version.split(";")
-        wanted_version = int(wanted_version)
-        cmis_doc = self._client.get_cmis_document(uuid=uuid)
+        wanted_version = int(Decimal(wanted_version))
+        cmis_doc = self._client.get_document(uuid=uuid)
         # only way to get a specific version
         if cmis_doc.versie != wanted_version:
             all_versions = Document.get_all_versions(cmis_doc)

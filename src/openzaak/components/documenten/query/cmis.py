@@ -13,6 +13,7 @@ from django.db.models.query import BaseIterable
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
+from client.soap_client import SOAPCMISClient
 from django_loose_fk.virtual_models import ProxyMixin
 from drc_cmis.backend import CMISDRCStorageBackend
 from drc_cmis.client import CMISDRCClient, exceptions
@@ -481,7 +482,7 @@ class CMISQuerySet(InformatieobjectQuerySet):
     @property
     def cmis_client(self):
         if not self._client:
-            self._client = CMISDRCClient()
+            self._client = SOAPCMISClient()
 
         return self._client
 
@@ -545,22 +546,25 @@ class CMISQuerySet(InformatieobjectQuerySet):
         )
 
         # The begin_registratie field needs to be populated (could maybe be moved in cmis library?)
-        kwargs["begin_registratie"] = timezone.now()
+        kwargs["begin_registratie"] = timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
+        for key, value in kwargs.items():
+            if isinstance(value, datetime.datetime) or isinstance(value, datetime.date):
+                kwargs[key] = value.strftime("%Y-%m-%dT%H:%M:%S.%f")
 
         try:
             # Needed because the API calls the create function for an update request
-            new_cmis_document = self.cmis_client.update_cmis_document(
+            new_cmis_document = self.cmis_client.update_document(
                 uuid=kwargs.get("uuid"),
                 lock=kwargs.get("lock"),
                 data=kwargs,
                 content=kwargs.get("inhoud"),
             )
         except exceptions.DocumentDoesNotExistError:
-            kwargs.setdefault("versie", 1)
+            kwargs.setdefault("versie", "1")
             new_cmis_document = self.cmis_client.create_document(
                 identification=kwargs.get("identificatie"),
                 data=kwargs,
-                content=kwargs.get("inhoud"),
+                content=kwargs.pop("inhoud", None),
             )
 
         django_document = cmis_doc_to_django_model(new_cmis_document)
@@ -896,11 +900,23 @@ def format_fields(obj, obj_fields):
         elif isinstance(field, fields.DateTimeField):
             if isinstance(_value, int):
                 setattr(obj, field.name, convert_timestamp_to_django_datetime(_value))
+            elif isinstance(_value, str):
+                setattr(
+                    obj,
+                    field.name,
+                    datetime.datetime.strptime(_value, "%Y-%m-%dT%H:%M:%S.%f%z"),
+                )
         elif isinstance(field, fields.DateField):
             if isinstance(_value, int):
                 converted_datetime = convert_timestamp_to_django_datetime(_value)
                 setattr(obj, field.name, converted_datetime.date())
-
+            elif isinstance(_value, str):
+                converted_datetime = datetime.datetime.strptime(
+                    _value, "%Y-%m-%dT%H:%M:%S.%f%z"
+                )
+                setattr(obj, field.name, converted_datetime.date())
+            elif isinstance(_value, datetime.datetime):
+                setattr(obj, field.name, _value.date())
     return obj
 
 
@@ -937,11 +953,15 @@ def cmis_doc_to_django_model(
     cmis_doc = format_fields(cmis_doc, EnkelvoudigInformatieObject._meta.get_fields())
 
     # Setting up a local file with the content of the cmis document
-    uuid_with_version = f"{cmis_doc.versionSeriesId};{cmis_doc.versie}"
+    # Replacing the alfresco version (decimal) with the custom version label
+    uuid_with_version = f"{cmis_doc.objectId.split(';')[0]};{cmis_doc.versie}"
     content_file = CMISStorageFile(uuid_version=uuid_with_version)
 
+    # Extracting uuid from versionSeriesId (same as that in objectId, but without version label)
+    document_uuid = cmis_doc.versionSeriesId.split("/")[-1]
+
     document = EnkelvoudigInformatieObject(
-        uuid=uuid.UUID(cmis_doc.uuid),
+        uuid=uuid.UUID(document_uuid),
         auteur=cmis_doc.auteur,
         begin_registratie=cmis_doc.begin_registratie,
         beschrijving=cmis_doc.beschrijving,
